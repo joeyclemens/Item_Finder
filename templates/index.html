@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Item Finder</title>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <style>
+        @font-face {
+            font-family: 'General Sans';
+            src: url('/font/GeneralSans-Regular.otf') format('opentype');
+            font-weight: 400;
+            font-style: normal;
+        }
+        @font-face {
+            font-family: 'General Sans';
+            src: url('/font/GeneralSans-Semibold.otf') format('opentype');
+            font-weight: 600;
+            font-style: normal;
+        }
+        body, input, button, table, .terms-list li, #no-results-box {
+            font-family: 'General Sans', Arial, sans-serif;
+            font-weight: 400;
+        }
+        h1, th {
+            font-family: 'General Sans', Arial, sans-serif;
+            font-weight: 600;
+        }
+        .terms-list {
+            margin: 10px 0;
+            padding: 0;
+            list-style: none;
+            display: flex;
+            flex-wrap: wrap;
+        }
+        .terms-list li {
+            border-radius: 3px;
+            padding: 3px 10px;
+            margin: 2px;
+            display: flex;
+            align-items: center;
+            color: #222;
+            font-weight: 500;
+            font-size: 15px;
+            background: #e0e0e0;
+            transition: background 0.2s;
+        }
+        .remove-term {
+            margin-left: 6px;
+            cursor: pointer;
+            color: #888;
+            font-size: 18px;
+        }
+        #term-input {
+            width: 400px;
+            padding: 4px;
+        }
+        #results {
+            margin-top: 20px;
+            font-family: monospace;
+        }
+        .spinner {
+            display: none;
+            margin: 20px auto;
+            border: 6px solid #f3f3f3;
+            border-top: 6px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        table.results-table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-top: 10px;
+            font-family: Arial, sans-serif;
+        }
+        table.results-table th, table.results-table td {
+            border: 1px solid #ccc;
+            padding: 6px 10px;
+            text-align: left;
+            vertical-align: top;
+        }
+        table.results-table th {
+            background: #f5f5f5;
+            position: sticky;
+            top: 0;
+            z-index: 2;
+        }
+        table.results-table tr:nth-child(even) {
+            background: #fafafa;
+        }
+        table.results-table td.description, table.results-table td.matched {
+            white-space: pre-line;
+            word-break: break-word;
+            max-width: 400px;
+        }
+        #no-results-box {
+            position: absolute;
+            top: 30px;
+            right: 30px;
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeeba;
+            border-radius: 6px;
+            padding: 12px 18px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            z-index: 2000;
+            min-width: 180px;
+            display: none;
+        }
+        button, input[type="submit"] {
+            background: #3498db;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            padding: 10px 18px;
+            font-size: 16px;
+            font-family: inherit;
+            cursor: pointer;
+            margin: 8px 4px 0 0;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            transition: background 0.2s, box-shadow 0.2s, transform 0.1s;
+        }
+        button:hover, input[type="submit"]:hover {
+            background: #217dbb;
+            box-shadow: 0 4px 16px rgba(52,152,219,0.15);
+            transform: translateY(-2px) scale(1.03);
+        }
+        button:active, input[type="submit"]:active {
+            background: #176093;
+            transform: translateY(1px) scale(0.98);
+        }
+        #export-btn {
+            float: right;
+            margin-top: 10px;
+            margin-bottom: 18px;
+        }
+        #back-to-top {
+            display: none;
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            z-index: 1000;
+            padding: 10px 18px;
+            font-size: 16px;
+            border: none;
+            border-radius: 5px;
+            background: #3498db;
+            color: #fff;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+    </style>
+</head>
+<body>
+    <h1>Item Finder</h1>
+    <form id="search-form">
+        <label for="term-input">Enter a search term and press Enter:</label><br>
+        <input type="text" id="term-input" autocomplete="off" placeholder="Type a term and press Enter">
+        <ul class="terms-list" id="terms-list"></ul>
+        <input type="submit" value="Search">
+    </form>
+    <div style="display:flex;justify-content:flex-end;margin:18px 0 8px 0;">
+        <button id="export-btn" style="display:none;">Export to Excel</button>
+    </div>
+    <div class="spinner" id="spinner"></div>
+    <div id="results"></div>
+    <div id="no-results-box"></div>
+    <button id="back-to-top" style="display:none;position:fixed;bottom:30px;right:30px;z-index:1000;padding:10px 18px;font-size:16px;border:none;border-radius:5px;background:#3498db;color:#fff;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.15);">Back to Top</button>
+    <script>
+        const termInput = document.getElementById('term-input');
+        const termsList = document.getElementById('terms-list');
+        const form = document.getElementById('search-form');
+        const resultsDiv = document.getElementById('results');
+        const spinner = document.getElementById('spinner');
+        let terms = [];
+
+        function renderTerms() {
+            termsList.innerHTML = '';
+            const tagColors = [
+                '#ffd166', // yellow
+                '#06d6a0', // teal
+                '#118ab2', // blue
+                '#ef476f', // pink
+                '#ffa69e', // peach
+                '#a3cef1', // light blue
+                '#bdb2ff', // purple
+                '#f6bd60', // sand
+                '#caff70', // green
+                '#ffb4a2'  // coral
+            ];
+            terms.forEach((term, i) => {
+                const li = document.createElement('li');
+                li.textContent = term;
+                li.style.background = tagColors[i % tagColors.length];
+                const removeBtn = document.createElement('span');
+                removeBtn.className = 'remove-term';
+                removeBtn.innerHTML = '&times;';
+                removeBtn.onclick = () => {
+                    terms.splice(i, 1);
+                    renderTerms();
+                };
+                li.appendChild(removeBtn);
+                termsList.appendChild(li);
+            });
+        }
+
+        termInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const value = termInput.value.trim();
+                if (value && !terms.includes(value)) {
+                    terms.push(value);
+                    renderTerms();
+                }
+                termInput.value = '';
+            }
+        });
+
+        function parseResultLine(line) {
+            // Format: [DB] ADB_Ref - Description (matched: term1, term2) [Unit_Cost: value] [CAT: value] [Group: value]
+            const match = line.match(/^\[(.*?)\]\s+(.*?)\s+-\s+(.*?)(?:\s+\(matched:\s*(.*?)\))?(?:\s+\[Unit_Cost:\s*(.*?)\])?(?:\s+\[CAT:\s*(.*?)\])?(?:\s+\[Group:\s*(.*?)\])?\s*$/);
+            if (!match) return null;
+            return {
+                db: match[1] || '',
+                adb_ref: match[2] || '',
+                description: match[3] || '',
+                matched: match[4] || '',
+                unit_cost: match[5] || '',
+                cat: match[6] || '',
+                group: match[7] || ''
+            };
+        }
+
+        function renderResultsTable(text) {
+            const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
+            if (lines.length === 0 || (lines.length === 1 && (lines[0] === 'No results found' || lines[0].startsWith('No search terms provided')))) {
+                resultsDiv.innerHTML = `<div style="margin-top:10px;color:#b00;">${lines[0] || 'No results found'}</div>`;
+                document.getElementById('no-results-box').style.display = 'none';
+                return;
+            }
+            let table = `<table class="results-table"><thead><tr><th>Database</th><th>ADB_Ref</th><th>Description</th><th>Matched Terms</th><th>Unit_Cost</th><th>CAT</th><th>Group</th></tr></thead><tbody>`;
+            const parsedRows = [];
+            for (const line of lines) {
+                const row = parseResultLine(line);
+                if (row) {
+                    parsedRows.push(row);
+                    table += `<tr><td>${row.db}</td><td>${row.adb_ref}</td><td class="description">${row.description}</td><td class="matched"></td><td class="unit-cost"></td><td class="cat"></td><td class="group"></td></tr>`;
+                }
+            }
+            table += '</tbody></table>';
+            resultsDiv.innerHTML = table;
+
+            // Post-process: fill matched terms and unit cost
+            const matchedCells = resultsDiv.querySelectorAll('td.matched');
+            const descCells = resultsDiv.querySelectorAll('td.description');
+            const unitCostCells = resultsDiv.querySelectorAll('td.unit-cost');
+            const catCells = resultsDiv.querySelectorAll('td.cat');
+            const groupCells = resultsDiv.querySelectorAll('td.group');
+            matchedCells.forEach((cell, i) => {
+                const desc = descCells[i].textContent.toLowerCase();
+                const found = terms.filter(term => desc.includes(term.toLowerCase()));
+                cell.textContent = found.length ? found.join(', ') : 'N/A';
+            });
+            // Parse and fill Unit_Cost, CAT, and Group from the backend output
+            parsedRows.forEach((row, i) => {
+                if (row.unit_cost !== undefined) {
+                    unitCostCells[i].textContent = row.unit_cost;
+                }
+                if (row.cat !== undefined) {
+                    catCells[i].textContent = row.cat;
+                }
+                if (row.group !== undefined) {
+                    groupCells[i].textContent = row.group.replace(/[\[\]Group:\s]/g, '');
+                }
+            });
+
+            // Show no-results box for terms not found in any row
+            const notFound = terms.filter(term => !parsedRows.some(row => row.description.toLowerCase().includes(term.toLowerCase())));
+            const noResultsBox = document.getElementById('no-results-box');
+            if (notFound.length > 0) {
+                noResultsBox.innerHTML = `<b>No Results For:</b><br>${notFound.map(t => `<span style='display:inline-block;margin:2px 0;padding:2px 8px;background:#ffeeba;border-radius:3px;'>${t}</span>`).join('<br>')}`;
+                noResultsBox.style.display = 'block';
+            } else {
+                noResultsBox.style.display = 'none';
+            }
+
+            // Export to Excel (XLSX) logic using backend
+            document.getElementById('export-btn').style.display = 'inline-block';
+        }
+
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            // If the user typed something but didn't press enter, add it
+            const value = termInput.value.trim();
+            if (value && !terms.includes(value)) {
+                terms.push(value);
+                renderTerms();
+            }
+            resultsDiv.textContent = '';
+            spinner.style.display = 'block';
+            fetch('/search', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ terms }),
+            })
+            .then(res => res.text())
+            .then(text => {
+                spinner.style.display = 'none';
+                renderResultsTable(text);
+            })
+            .catch(err => {
+                spinner.style.display = 'none';
+                resultsDiv.textContent = 'Error: ' + err;
+            });
+        });
+
+        // Export to Excel (XLSX) logic using backend
+        document.getElementById('export-btn').addEventListener('click', function() {
+            if (!terms.length) return;
+            const btn = this;
+            btn.disabled = true;
+            btn.textContent = 'Exporting...';
+            fetch('/export_excel', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ terms })
+            })
+            .then(res => {
+                if (!res.ok) throw new Error('Failed to export Excel');
+                return res.blob();
+            })
+            .then(blob => {
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'item_finder_results.xlsx';
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(() => {
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+                }, 100);
+            })
+            .catch(err => {
+                alert('Export failed: ' + err);
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.textContent = 'Export to Excel';
+            });
+        });
+
+        // Back to Top button logic
+        const backToTop = document.getElementById('back-to-top');
+        window.addEventListener('scroll', function() {
+            if (window.scrollY > 300) {
+                backToTop.style.display = 'block';
+            } else {
+                backToTop.style.display = 'none';
+            }
+        });
+        backToTop.addEventListener('click', function() {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+
+        // Auto-shutdown when tab/window is closed
+        window.addEventListener('unload', function() {
+            fetch('/shutdown', {
+                method: 'POST',
+                keepalive: true
+            });
+        });
+    </script>
+</body>
+</html> 
