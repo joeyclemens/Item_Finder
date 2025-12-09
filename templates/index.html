@@ -138,6 +138,37 @@
             margin-top: 10px;
             margin-bottom: 18px;
         }
+        .search-toggle {
+            display: inline-flex;
+            background: #f0f0f0;
+            border-radius: 8px;
+            padding: 4px;
+            margin: 15px 0;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        .search-toggle label {
+            padding: 8px 20px;
+            cursor: pointer;
+            border-radius: 6px;
+            transition: all 0.3s ease;
+            font-weight: 500;
+            color: #666;
+            user-select: none;
+        }
+        .search-toggle input[type="radio"] {
+            display: none;
+        }
+        .search-toggle input[type="radio"]:checked + span {
+            background: #3498db;
+            color: white;
+            box-shadow: 0 2px 6px rgba(52,152,219,0.3);
+        }
+        .search-toggle label:hover span {
+            color: #3498db;
+        }
+        .search-toggle input[type="radio"]:checked + span:hover {
+            color: white;
+        }
         #back-to-top {
             display: none;
             position: fixed;
@@ -161,6 +192,19 @@
         <label for="term-input">Enter a search term and press Enter:</label><br>
         <input type="text" id="term-input" autocomplete="off" placeholder="Type a term and press Enter">
         <ul class="terms-list" id="terms-list"></ul>
+        <div style="margin: 15px 0;">
+            <label style="font-weight: 500; margin-right: 10px; color: #555;">Search in:</label>
+            <div class="search-toggle">
+                <label>
+                    <input type="radio" name="search-field" value="ADB_Ref" checked>
+                    <span>ADB_Ref</span>
+                </label>
+                <label>
+                    <input type="radio" name="search-field" value="Item_Description">
+                    <span>Item_Description</span>
+                </label>
+            </div>
+        </div>
         <input type="submit" value="Search">
     </form>
     <div style="display:flex;justify-content:flex-end;margin:18px 0 8px 0;">
@@ -255,14 +299,18 @@
             resultsDiv.innerHTML = table;
 
             // Post-process: fill matched terms and unit cost
+            const searchField = document.querySelector('input[name="search-field"]:checked').value;
             const matchedCells = resultsDiv.querySelectorAll('td.matched');
+            const adbRefCells = resultsDiv.querySelectorAll('td:nth-child(2)');
             const descCells = resultsDiv.querySelectorAll('td.description');
             const unitCostCells = resultsDiv.querySelectorAll('td.unit-cost');
             const catCells = resultsDiv.querySelectorAll('td.cat');
             const groupCells = resultsDiv.querySelectorAll('td.group');
             matchedCells.forEach((cell, i) => {
-                const desc = descCells[i].textContent.toLowerCase();
-                const found = terms.filter(term => desc.includes(term.toLowerCase()));
+                const searchValue = searchField === 'Item_Description' 
+                    ? descCells[i].textContent.toLowerCase()
+                    : adbRefCells[i].textContent.toLowerCase();
+                const found = terms.filter(term => searchValue.includes(term.toLowerCase()));
                 cell.textContent = found.length ? found.join(', ') : 'N/A';
             });
             // Parse and fill Unit_Cost, CAT, and Group from the backend output
@@ -279,7 +327,10 @@
             });
 
             // Show no-results box for terms not found in any row
-            const notFound = terms.filter(term => !parsedRows.some(row => row.description.toLowerCase().includes(term.toLowerCase())));
+            const notFound = terms.filter(term => !parsedRows.some(row => {
+                const searchValue = searchField === 'Item_Description' ? row.description : row.adb_ref;
+                return searchValue.toLowerCase().includes(term.toLowerCase());
+            }));
             const noResultsBox = document.getElementById('no-results-box');
             if (notFound.length > 0) {
                 noResultsBox.innerHTML = `<b>No Results For:</b><br>${notFound.map(t => `<span style='display:inline-block;margin:2px 0;padding:2px 8px;background:#ffeeba;border-radius:3px;'>${t}</span>`).join('<br>')}`;
@@ -302,12 +353,13 @@
             }
             resultsDiv.textContent = '';
             spinner.style.display = 'block';
+            const searchField = document.querySelector('input[name="search-field"]:checked').value;
             fetch('/search', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ terms }),
+                body: JSON.stringify({ terms, search_field: searchField }),
             })
             .then(res => res.text())
             .then(text => {
@@ -326,10 +378,11 @@
             const btn = this;
             btn.disabled = true;
             btn.textContent = 'Exporting...';
+            const searchField = document.querySelector('input[name="search-field"]:checked').value;
             fetch('/export_excel', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ terms })
+                body: JSON.stringify({ terms, search_field: searchField })
             })
             .then(res => {
                 if (!res.ok) throw new Error('Failed to export Excel');
