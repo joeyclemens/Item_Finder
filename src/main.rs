@@ -25,6 +25,7 @@ struct IndexTemplate;
 #[derive(Deserialize)]
 struct SearchQuery {
     terms: Vec<String>,
+    search_field: Option<String>,
 }
 
 async fn index() -> impl Responder {
@@ -37,6 +38,7 @@ async fn search(query: web::Json<SearchQuery>) -> Result<HttpResponse, Error> {
     if terms.is_empty() {
         return Ok(HttpResponse::BadRequest().body("No search terms provided"));
     }
+    let search_field = query.search_field.as_deref().unwrap_or("ADB_Ref");
 
     // Connect to SQL Server with Windows Auth
     let mut config = Config::new();
@@ -80,8 +82,13 @@ async fn search(query: web::Json<SearchQuery>) -> Result<HttpResponse, Error> {
         }
         // Build fuzzy search query
         let mut where_clauses = Vec::new();
+        let column = if search_field == "Item_Description" {
+            "i.Item_Description"
+        } else {
+            "i.ADB_Ref"
+        };
         for term in &terms {
-            where_clauses.push(format!("Item_Description LIKE '%{}%'", term.replace("'", "''")));
+            where_clauses.push(format!("{} LIKE '%{}%'", column, term.replace("'", "''")));
         }
         if where_clauses.is_empty() {
             continue; // skip this DB if no valid search terms
@@ -132,9 +139,13 @@ async fn search(query: web::Json<SearchQuery>) -> Result<HttpResponse, Error> {
 
                     // Find which terms matched (case-insensitive)
                     let mut matched_terms = Vec::new();
-                    let desc_lower = desc.unwrap_or("").to_lowercase();
+                    let search_value = if search_field == "Item_Description" {
+                        desc.unwrap_or("").to_lowercase()
+                    } else {
+                        adb_ref.unwrap_or("").to_lowercase()
+                    };
                     for term in &terms {
-                        if desc_lower.contains(&term.to_lowercase()) {
+                        if search_value.contains(&term.to_lowercase()) {
                             matched_terms.push(term);
                         }
                     }
@@ -172,6 +183,7 @@ async fn export_excel(query: web::Json<SearchQuery>) -> Result<HttpResponse, Err
     if terms.is_empty() {
         return Ok(HttpResponse::BadRequest().body("No search terms provided"));
     }
+    let search_field = query.search_field.as_deref().unwrap_or("ADB_Ref");
 
     // Connect to SQL Server with Windows Auth
     let mut config = Config::new();
@@ -240,8 +252,13 @@ async fn export_excel(query: web::Json<SearchQuery>) -> Result<HttpResponse, Err
             continue;
         }
         let mut where_clauses = Vec::new();
+        let column = if search_field == "Item_Description" {
+            "i.Item_Description"
+        } else {
+            "i.ADB_Ref"
+        };
         for term in &terms {
-            where_clauses.push(format!("Item_Description LIKE '%{}%'", term.replace("'", "''")));
+            where_clauses.push(format!("{} LIKE '%{}%'", column, term.replace("'", "''")));
         }
         if where_clauses.is_empty() {
             continue;
@@ -261,9 +278,13 @@ async fn export_excel(query: web::Json<SearchQuery>) -> Result<HttpResponse, Err
                     let cat: Option<&str> = row.get(4);
                     
                     let mut matched_terms = Vec::new();
-                    let desc_lower = desc.unwrap_or("").to_lowercase();
+                    let search_value = if search_field == "Item_Description" {
+                        desc.unwrap_or("").to_lowercase()
+                    } else {
+                        adb_ref.unwrap_or("").to_lowercase()
+                    };
                     for term in &terms {
-                        if desc_lower.contains(&term.to_lowercase()) {
+                        if search_value.contains(&term.to_lowercase()) {
                             matched_terms.push(term.as_str());
                         }
                     }
